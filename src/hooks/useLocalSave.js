@@ -15,7 +15,9 @@ const DEFAULT_STATS = {
     hard: null,
     expert: null
   },
-  totalCompletedPlayTime: 0 // in seconds, to calculate average completed time
+  totalCompletedPlayTime: 0, // in seconds, to calculate average completed time
+  currentStreak: 0,
+  highestStreak: 0
 };
 
 const DEFAULT_SETTINGS = {
@@ -24,7 +26,10 @@ const DEFAULT_SETTINGS = {
   mistakeLimitEnabled: true,
   highlightDuplicates: true,
   highlightSameNumbers: true,
-  highlightArea: true
+  highlightArea: true,
+  theme: 'light', // 'light', 'cream', 'green', 'dark', 'oled'
+  themeFontSize: 2, // 1 (small), 2 (medium), 3 (large)
+  darkThemeSync: false
 };
 
 export function useLocalSave() {
@@ -90,12 +95,25 @@ export function useLocalSave() {
     stats.gamesCompleted += 1;
     stats.totalCompletedPlayTime += timeInSeconds;
 
+    // Manage streak
+    stats.currentStreak = (stats.currentStreak || 0) + 1;
+    if (stats.currentStreak > (stats.highestStreak || 0)) {
+      stats.highestStreak = stats.currentStreak;
+    }
+
     const diffKey = difficulty.toLowerCase();
     const currentBest = stats.bestTimes[diffKey];
     if (currentBest === null || timeInSeconds < currentBest) {
       stats.bestTimes[diffKey] = timeInSeconds;
     }
 
+    saveStats(stats);
+    return stats;
+  }, [getStats, saveStats]);
+
+  const recordGameOver = useCallback(() => {
+    const stats = getStats();
+    stats.currentStreak = 0;
     saveStats(stats);
     return stats;
   }, [getStats, saveStats]);
@@ -127,6 +145,7 @@ export function useLocalSave() {
     saveStats,
     recordGamePlayed,
     recordGameCompleted,
+    recordGameOver,
     getSettings,
     saveSettings
   };

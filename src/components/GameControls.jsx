@@ -1,17 +1,17 @@
 import React from 'react';
-import { Undo2, Redo2, Eraser, Pencil, Lightbulb } from 'lucide-react';
+import { Undo2, Eraser, Sparkles, Pencil, Lightbulb } from 'lucide-react';
 
 /**
- * Control operations row (Undo, Redo, Eraser, Pencil notes, Hints).
+ * Premium control operations toolbar matching screenshots.
  */
 export default function GameControls({
   canUndo,
   onUndo,
-  canRedo,
-  onRedo,
   onErase,
   notesMode,
   onToggleNotes,
+  onFastPencil,
+  hintsLeft = 3,
   onHint,
   activeCellSelected
 }) {
@@ -25,23 +25,13 @@ export default function GameControls({
         aria-label="Undo last move"
         id="control-undo-btn"
       >
-        <Undo2 size={22} />
-        <span>Undo</span>
+        <div className="control-icon-wrapper">
+          <Undo2 size={22} />
+        </div>
+        <span className="control-btn-label">Undo</span>
       </button>
 
-      {/* Redo */}
-      <button
-        className="control-btn"
-        onClick={onRedo}
-        disabled={!canRedo}
-        aria-label="Redo last move"
-        id="control-redo-btn"
-      >
-        <Redo2 size={22} />
-        <span>Redo</span>
-      </button>
-
-      {/* Eraser */}
+      {/* Erase */}
       <button
         className="control-btn"
         onClick={onErase}
@@ -49,31 +39,57 @@ export default function GameControls({
         aria-label="Erase selected cell"
         id="control-erase-btn"
       >
-        <Eraser size={22} />
-        <span>Erase</span>
+        <div className="control-icon-wrapper">
+          <Eraser size={22} />
+        </div>
+        <span className="control-btn-label">Erase</span>
       </button>
 
-      {/* Pencil Notes */}
+      {/* Fast Pencil (Auto-fill) */}
       <button
-        className={`control-btn ${notesMode ? 'active' : ''}`}
+        className="control-btn"
+        onClick={onFastPencil}
+        aria-label="Auto fill notes"
+        id="control-fast-pencil-btn"
+      >
+        <div className="control-icon-wrapper">
+          <Sparkles size={22} />
+          <span className="control-badge fast-pencil-badge">+1</span>
+        </div>
+        <span className="control-btn-label">Fast Pencil</span>
+      </button>
+
+      {/* Pencil Notes Toggle */}
+      <button
+        className={`control-btn ${notesMode ? 'notes-active-btn' : ''}`}
         onClick={onToggleNotes}
         aria-label="Toggle notes mode"
         id="control-notes-btn"
       >
-        <Pencil size={22} />
-        <span>Notes {notesMode ? 'ON' : 'OFF'}</span>
+        <div className="control-icon-wrapper">
+          <Pencil size={22} />
+          <span className={`pencil-pill ${notesMode ? 'on' : 'off'}`}>
+            {notesMode ? 'ON' : 'OFF'}
+          </span>
+        </div>
+        <span className="control-btn-label">Pencil</span>
       </button>
 
-      {/* Hints */}
+      {/* Smart Hint */}
       <button
         className="control-btn"
         onClick={onHint}
-        disabled={!activeCellSelected}
+        disabled={!activeCellSelected || hintsLeft <= 0}
         aria-label="Reveal hint for active cell"
         id="control-hint-btn"
       >
-        <Lightbulb size={22} style={{ color: activeCellSelected ? 'var(--warning)' : 'inherit' }} />
-        <span>Hint</span>
+        <div className="control-icon-wrapper">
+          <Lightbulb size={22} style={{ color: activeCellSelected && hintsLeft > 0 ? 'var(--warning)' : 'inherit' }} />
+          {hintsLeft > 0 && (
+            <span className="control-badge hint-count-badge">{hintsLeft}</span>
+          )}
+        </div>
+        <span className="control-btn-label">Hint</span>
       </button>
     </div>
   );

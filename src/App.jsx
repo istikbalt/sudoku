@@ -25,14 +25,43 @@ export default function App() {
   const timer = useTimer(0);
   const game = useSudokuGame(timer, settings);
 
-  // Sync Dark/Light theme with document element
+  // Sync Theme and Font-Size settings with document attributes
   useEffect(() => {
-    if (settings.darkMode) {
-      document.documentElement.setAttribute('data-theme', 'dark');
-    } else {
-      document.documentElement.removeAttribute('data-theme');
+    let activeTheme = settings.theme || 'light';
+    
+    if (settings.darkThemeSync) {
+      const isSystemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      activeTheme = isSystemDark ? 'dark' : 'oled'; // Default to Slate Dark or OLED Black when dark
     }
-  }, [settings.darkMode]);
+    
+    document.documentElement.setAttribute('data-theme', activeTheme);
+    document.documentElement.setAttribute('data-font-size', String(settings.themeFontSize || 2));
+  }, [settings.theme, settings.themeFontSize, settings.darkThemeSync]);
+
+  // Media query listener for Dark Theme Sync
+  useEffect(() => {
+    if (!settings.darkThemeSync) return;
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e) => {
+      const newTheme = e.matches ? 'dark' : 'light';
+      handleUpdateSetting('theme', newTheme);
+    };
+
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', handleChange);
+    } else {
+      mediaQuery.addListener(handleChange);
+    }
+
+    return () => {
+      if (mediaQuery.removeEventListener) {
+        mediaQuery.removeEventListener('change', handleChange);
+      } else {
+        mediaQuery.removeListener(handleChange);
+      }
+    };
+  }, [settings.darkThemeSync]);
 
   // Check on mount and periodically if a saved game exists in localStorage
   const checkSavedGame = () => {
@@ -149,6 +178,12 @@ export default function App() {
           timer={timer}
           settings={settings}
           onBackHome={handleBackToHome}
+          stats={stats}
+          onUpdateSetting={handleUpdateSetting}
+          onSettingsClick={() => {
+            timer.pause();
+            setCurrentScreen('settings');
+          }}
         />
       )}
 

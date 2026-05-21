@@ -3,9 +3,10 @@ import { generatePuzzle, generateDailyChallenge } from '../engine/generator.js';
 import { getDuplicates, isMistake } from '../engine/validator.js';
 import { DIFFICULTY_CONFIGS, DIFFICULTY_LEVELS } from '../engine/difficulty.js';
 import { useLocalSave } from './useLocalSave.js';
+import { isValid } from '../engine/solver.js';
 
 export function useSudokuGame(timer, initialSettings) {
-  const { saveActiveGame, clearActiveGame, recordGamePlayed, recordGameCompleted } = useLocalSave();
+  const { saveActiveGame, clearActiveGame, recordGamePlayed, recordGameCompleted, recordGameOver } = useLocalSave();
 
   // Core Game State
   const [difficulty, setDifficulty] = useState(DIFFICULTY_LEVELS.EASY);
@@ -17,6 +18,8 @@ export function useSudokuGame(timer, initialSettings) {
   const [notesMode, setNotesMode] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
+  const [score, setScore] = useState(0);
+  const [hintsLeft, setHintsLeft] = useState(3);
   
   // History stack for Undo/Redo
   const [history, setHistory] = useState([]);
@@ -38,7 +41,7 @@ export function useSudokuGame(timer, initialSettings) {
   }, [settings.highlightDuplicates]);
 
   // Save current game state to local storage
-  const autoSave = useCallback((gridCells, currentMistakes, currentDifficulty, currentIsDaily, currentDateString, currentHistory, currentHistoryIdx) => {
+  const autoSave = useCallback((gridCells, currentMistakes, currentDifficulty, currentIsDaily, currentDateString, currentHistory, currentHistoryIdx, currentScore, currentHintsLeft) => {
     const serializedState = {
       cells: gridCells.map(c => ({
         value: c.value,
@@ -57,7 +60,9 @@ export function useSudokuGame(timer, initialSettings) {
         solutionValue: c.solutionValue,
         notes: c.notes
       }))),
-      historyIndex: currentHistoryIdx
+      historyIndex: currentHistoryIdx,
+      score: currentScore,
+      hintsLeft: currentHintsLeft
     };
     saveActiveGame(serializedState);
   }, [timer.seconds, saveActiveGame]);
@@ -96,6 +101,8 @@ export function useSudokuGame(timer, initialSettings) {
     setNotesMode(false);
     setIsCompleted(false);
     setIsGameOver(false);
+    setScore(0);
+    setHintsLeft(3);
 
     // Reset history
     const initialHistory = [JSON.parse(JSON.stringify(finalCells))];
@@ -112,7 +119,7 @@ export function useSudokuGame(timer, initialSettings) {
     }
 
     // Trigger initial autosave
-    autoSave(finalCells, 0, selectedDiff, !!dailyDate, dailyDate, initialHistory, 0);
+    autoSave(finalCells, 0, selectedDiff, !!dailyDate, dailyDate, initialHistory, 0, 0, 3);
   }, [timer, updateDuplicates, autoSave, recordGamePlayed]);
 
   // Load a previously saved game
@@ -134,6 +141,8 @@ export function useSudokuGame(timer, initialSettings) {
     setNotesMode(false);
     setIsCompleted(false);
     setIsGameOver(false);
+    setScore(savedState.score || 0);
+    setHintsLeft(savedState.hintsLeft !== undefined ? savedState.hintsLeft : 3);
 
     // Load history
     if (savedState.history && savedState.historyIndex !== undefined) {
@@ -151,7 +160,7 @@ export function useSudokuGame(timer, initialSettings) {
   }, [timer, updateDuplicates]);
 
   // Push a new grid snapshot to the history stack
-  const pushHistory = useCallback((newCellsState) => {
+  const pushHistory = useCallback((newCellsState, newScore = score, newHintsLeft = hintsLeft) => {
     const updatedHistory = history.slice(0, historyIndex + 1);
     updatedHistory.push(JSON.parse(JSON.stringify(newCellsState)));
     setHistory(updatedHistory);
@@ -165,9 +174,11 @@ export function useSudokuGame(timer, initialSettings) {
       isDaily,
       dateString,
       updatedHistory,
-      updatedHistory.length - 1
+      updatedHistory.length - 1,
+      newScore,
+      newHintsLeft
     );
-  }, [history, historyIndex, autoSave, mistakes, difficulty, isDaily, dateString]);
+  }, [history, historyIndex, autoSave, mistakes, difficulty, isDaily, dateString, score, hintsLeft]);
 
   // Select active cell
   const selectCell = useCallback((index) => {
@@ -192,6 +203,9 @@ export function useSudokuGame(timer, initialSettings) {
       timer.start();
     }
 
+    let newScore = score;
+    let newMistakes = mistakes;
+
     let newCells = cells.map((c, idx) => {
       if (idx !== activeCellIndex) return c;
       
@@ -204,6 +218,7 @@ export function useSudokuGame(timer, initialSettings) {
         } else {
           currentNotes.push(value);
           currentNotes.sort();
+          newScore += 10; // pencil note +10 points
         }
         return { ...c, notes: currentNotes, value: 0 };
       } else {
@@ -217,13 +232,14 @@ export function useSudokuGame(timer, initialSettings) {
     // Check duplicate warnings dynamically
     newCells = updateDuplicates(newCells);
 
-    // If we filled a value in normal mode (not note), verify if it is a mistake
-    let newMistakes = mistakes;
+    // If we filled a value in normal mode (not note), verify if it is a mistake or correct
     if (!notesMode && value !== 0 && targetCell.value !== value) {
       const solutionVal = targetCell.solutionValue;
       if (isMistake(value, solutionVal)) {
         newMistakes += 1;
         setMistakes(newMistakes);
+        newScore = Math.max(0, newScore - 100);
+        setScore(newScore);
 
         // Check if Game Over
         const config = DIFFICULTY_CONFIGS[difficulty];
@@ -231,14 +247,23 @@ export function useSudokuGame(timer, initialSettings) {
           setIsGameOver(true);
           timer.pause();
           clearActiveGame();
+          recordGameOver();
           setCells(newCells);
           return;
         }
+      } else {
+        // Correct placement!
+        if (targetCell.value !== solutionVal) {
+          newScore += 50;
+          setScore(newScore);
+        }
       }
+    } else if (notesMode) {
+      setScore(newScore);
     }
 
     setCells(newCells);
-    pushHistory(newCells);
+    pushHistory(newCells, newScore, hintsLeft);
 
     // Verify Completion
     const hasEmpty = newCells.some(c => c.value === 0);
@@ -268,7 +293,10 @@ export function useSudokuGame(timer, initialSettings) {
     pushHistory,
     clearActiveGame,
     isDaily,
-    recordGameCompleted
+    recordGameCompleted,
+    recordGameOver,
+    score,
+    hintsLeft
   ]);
 
   // Clear value / Eraser action
@@ -300,6 +328,14 @@ export function useSudokuGame(timer, initialSettings) {
     if (targetCell.value === targetCell.solutionValue) return; // Already solved correctly
 
     const solutionVal = targetCell.solutionValue;
+    const newHintsLeft = Math.max(0, hintsLeft - 1);
+    setHintsLeft(newHintsLeft);
+
+    let newScore = score;
+    if (targetCell.value !== solutionVal) {
+      newScore += 50;
+      setScore(newScore);
+    }
 
     // Hint acts as placing the exact correct cell value
     let newCells = cells.map((c, idx) => {
@@ -309,7 +345,7 @@ export function useSudokuGame(timer, initialSettings) {
 
     newCells = updateDuplicates(newCells);
     setCells(newCells);
-    pushHistory(newCells);
+    pushHistory(newCells, newScore, newHintsLeft);
 
     // Verify Completion
     const hasEmpty = newCells.some(c => c.value === 0);
@@ -333,9 +369,10 @@ export function useSudokuGame(timer, initialSettings) {
     clearActiveGame,
     isDaily,
     difficulty,
-    timer.seconds,
-    timer.pause,
-    recordGameCompleted
+    timer,
+    recordGameCompleted,
+    score,
+    hintsLeft
   ]);
 
   // Undo Action
@@ -356,9 +393,11 @@ export function useSudokuGame(timer, initialSettings) {
       isDaily,
       dateString,
       history,
-      newIdx
+      newIdx,
+      score,
+      hintsLeft
     );
-  }, [history, historyIndex, isCompleted, isGameOver, updateDuplicates, autoSave, mistakes, difficulty, isDaily, dateString]);
+  }, [history, historyIndex, isCompleted, isGameOver, updateDuplicates, autoSave, mistakes, difficulty, isDaily, dateString, score, hintsLeft]);
 
   // Redo Action
   const redo = useCallback(() => {
@@ -378,9 +417,11 @@ export function useSudokuGame(timer, initialSettings) {
       isDaily,
       dateString,
       history,
-      newIdx
+      newIdx,
+      score,
+      hintsLeft
     );
-  }, [history, historyIndex, isCompleted, isGameOver, updateDuplicates, autoSave, mistakes, difficulty, isDaily, dateString]);
+  }, [history, historyIndex, isCompleted, isGameOver, updateDuplicates, autoSave, mistakes, difficulty, isDaily, dateString, score, hintsLeft]);
 
   // Sync settings when they are updated in SettingsScreen
   const updateSettings = useCallback((newSettings) => {
@@ -398,9 +439,36 @@ export function useSudokuGame(timer, initialSettings) {
   // Autosave periodically whenever time advances (every 10 seconds)
   useEffect(() => {
     if (cells.length > 0 && !isCompleted && !isGameOver && timer.isActive && timer.seconds % 10 === 0) {
-      autoSave(cells, mistakes, difficulty, isDaily, dateString, history, historyIndex);
+      autoSave(cells, mistakes, difficulty, isDaily, dateString, history, historyIndex, score, hintsLeft);
     }
-  }, [timer.seconds, cells, isCompleted, isGameOver, timer.isActive, mistakes, difficulty, isDaily, dateString, history, historyIndex, autoSave]);
+  }, [timer.seconds, cells, isCompleted, isGameOver, timer.isActive, mistakes, difficulty, isDaily, dateString, history, historyIndex, autoSave, score, hintsLeft]);
+
+  // Auto-fill all valid notes for empty cells (Fast Pencil)
+  const autoFillNotes = useCallback(() => {
+    if (isCompleted || isGameOver) return;
+
+    const board = cells.map(c => c.value);
+    
+    let newCells = cells.map((cell, idx) => {
+      if (cell.value !== 0) return cell;
+
+      const validCandidates = [];
+      for (let n = 1; n <= 9; n++) {
+        if (isValid(board, idx, n)) {
+          validCandidates.push(n);
+        }
+      }
+
+      return {
+        ...cell,
+        notes: validCandidates
+      };
+    });
+
+    newCells = updateDuplicates(newCells);
+    setCells(newCells);
+    pushHistory(newCells, score, hintsLeft);
+  }, [cells, isCompleted, isGameOver, updateDuplicates, pushHistory, score, hintsLeft]);
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -426,6 +494,9 @@ export function useSudokuGame(timer, initialSettings) {
     revealHint,
     undo,
     redo,
-    updateSettings
+    updateSettings,
+    autoFillNotes,
+    score,
+    hintsLeft
   };
 }
